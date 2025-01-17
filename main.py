@@ -371,6 +371,11 @@ async def info(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         api = user_data[update.effective_user.id]['api']
         info = api.get_user_info()
+        if info.get('expired_at') is None:
+            expiration_text = "永久有效"
+        else:
+            expiration_text = datetime.fromtimestamp(info.get('expired_at'))
+
         if info and 'data' in info:
             info = info['data']
             message = f"""
@@ -378,7 +383,7 @@ async def info(update: Update, context: ContextTypes.DEFAULT_TYPE):
 邮箱：{info.get('email', 'N/A')}
 余额：{info.get('balance', 0)} 元
 流量：{info.get('transfer_enable', 0) / 1024 / 1024 / 1024:.2f} GB
-过期时间：{ datetime.fromtimestamp(info.get('expired_at', 'N/A'))}
+过期时间：{ expiration_text }
 """
             await update.message.reply_text(message)
         else:
