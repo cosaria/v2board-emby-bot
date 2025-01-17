@@ -435,6 +435,8 @@ async def create_emby(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # 检查是否已有Emby账号
     user_id = update.effective_user.id
+    user = update.effective_user
+
     if user_data[user_id].get('emby'):
         await update.message.reply_text("您已经有Emby账号了，可以使用 /emby_info 查看账号信息")
         return
@@ -483,13 +485,20 @@ async def create_emby(update: Update, context: ContextTypes.DEFAULT_TYPE):
             save_user_data(user_id, user_data[user_id])
 
             message = f"""
-<b>Emby账号创建成功！</b>
+<b>{user.mention_html()}, 欢迎使用 Halo Media Server</b>
 
-用户名: <code>{result['username']}</code>
-密码: <code>{result['password']}</code>
-服务器地址: \n{os.getenv('EMBY_SERVER_URL_TEMPLATE')}
+下面是您的 Emby 账号信息：
 
-请妥善保管您的账号信息！
+账号: <code>{emby_info['username']}</code>
+密码: <code>{emby_info['password']}</code>
+
+
+下面是您的 Emby 服务器信息：
+
+{os.getenv('EMBY_SERVER_URL_TEMPLATE')}
+服务器端口: 443
+
+请妥善保管您的账号信息，忘记密码只能通过删除账号重新创建。
 """
             await update.message.reply_text(message, parse_mode='HTML')
         else:
@@ -502,7 +511,7 @@ async def create_emby(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def emby_info(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """查看Emby账号信息"""
     if not await load_user_session(update):
-        await update.message.reply_text("请先使用 /login 登录V2Board账号")
+        await update.message.reply_text("请先使用 /login 登录Halo Cloud账号")
         return
 
     # 检查是否有Emby账号
@@ -511,14 +520,23 @@ async def emby_info(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     emby_info = user_data[update.effective_user.id]['emby']
+    user = update.effective_user
+
     message = f"""
-<b>您的Emby账号信息：</b>
+<b>{user.mention_html()}, 欢迎使用 Halo Media Server</b>
 
-用户名: <code>{emby_info['username']}</code>
+下面是您的 Emby 账号信息：
+
+账号: <code>{emby_info['username']}</code>
 密码: <code>{emby_info['password']}</code>
-服务器地址: \n{os.getenv('EMBY_SERVER_URL_TEMPLATE')}
 
-请妥善保管您的账号信息！
+
+下面是您的 Emby 服务器信息：
+
+{os.getenv('EMBY_SERVER_URL_TEMPLATE')}
+服务器端口: 443
+
+请妥善保管您的账号信息，忘记密码只能通过删除账号重新创建。
 """
     await update.message.reply_text(message, parse_mode='HTML')
 
