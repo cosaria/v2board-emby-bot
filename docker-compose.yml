@@ -3,15 +3,9 @@ services:
     build: .
     container_name: v2board-emby-bot
     restart: always
-    networks:
-      - bot-network
     environment:
       - TZ=Asia/Shanghai
     volumes:
       - ./logs:/app/logs
       - ./user_data:/app/user_data
       - ./.env:/app/.env
-
-networks:
-  bot-network:
-    driver: bridge

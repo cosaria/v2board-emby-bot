@@ -1,13 +1,14 @@
 import os
 import json
+import time
 import logging
 from pathlib import Path
 from dotenv import load_dotenv
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes, ConversationHandler, CallbackQueryHandler
+from datetime import datetime
+from telegram import Update 
+from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes, ConversationHandler
 from v2board_api import V2BoardAPI
 from emby_api import EmbyAPI
-import time
 from logging.handlers import TimedRotatingFileHandler
 
 # 配置日志
@@ -158,9 +159,8 @@ def check_and_clean_old_binding(email: str, current_user_id: int) -> bool:
         logger.error(f"清理旧绑定时出错: {str(e)}")
         return False
 
+
 # 在保存用户数据时更新邮箱映射
-
-
 def save_user_data(user_id: int, data: dict):
     """保存用户数据到json文件（更新版）"""
     file_path = USER_DATA_DIR / f"{user_id}.json"
@@ -285,8 +285,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # 尝试加载用户数据
     is_logged_in = await load_user_session(update)
 
-    welcome_message = f"您好 {user.mention_html()}！\n"
-    welcome_message += "欢迎使用 V2Board 管理机器人。\n"
+    welcome_message = f"{user.mention_html()} 您好！\n"
+    welcome_message += "欢迎使用 Halo Media 管理机器人。\n"
     if not is_logged_in:
         welcome_message += "使用 /login 登录您的账号。\n"
     else:
@@ -305,8 +305,6 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 /login - 登录账号
 /info - 查看账户信息
 /subscribe - 获取订阅信息
-/plans - 查看可用套餐
-/orders - 查看订单列表
 /create_emby - 创建Emby账号
 /emby_info - 查看Emby账号信息
 /delete_emby - 删除Emby账号
@@ -334,7 +332,7 @@ async def password_received(update: Update, context: ContextTypes.DEFAULT_TYPE):
     password = update.message.text
 
     # 删除密码消息以保护隐私
-    await update.message.delete()
+    # await update.message.delete()
 
     # 创建API实例并尝试登录
     api = V2BoardAPI()
@@ -380,8 +378,7 @@ async def info(update: Update, context: ContextTypes.DEFAULT_TYPE):
 邮箱：{info.get('email', 'N/A')}
 余额：{info.get('balance', 0)} 元
 流量：{info.get('transfer_enable', 0) / 1024 / 1024 / 1024:.2f} GB
-过期时间：{info.get('expired_at', 'N/A')}
-当前订阅id：{info.get('plan_id', 'N/A')}
+过期时间：{ datetime.fromtimestamp(info.get('expired_at', 'N/A'))}
 """
             await update.message.reply_text(message)
         else:
@@ -419,65 +416,6 @@ async def subscribe(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("获取订阅信息失败：网络错误")
 
 
-async def plans(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """获取套餐列表"""
-    if not await load_user_session(update):
-        await update.message.reply_text("请先使用 /login 登录")
-        return
-
-    try:
-        api = user_data[update.effective_user.id]['api']
-        plans = api.get_plan_list()
-        if plans and 'data' in plans:
-            plans = plans['data']
-            message = "可用套餐列表：\n\n"
-            for plan in plans:
-                message += f"""
-名称：{plan.get('name', 'N/A')}
-月付：{plan.get('month_price', 'N/A')} 元
-季付：{plan.get('quarter_price', 'N/A')} 元
-年付：{plan.get('year_price', 'N/A')} 元
-流量：{plan.get('transfer_enable', 0) / 1024 / 1024 / 1024:.2f} GB
-------------------------
-"""
-            await update.message.reply_text(message)
-        else:
-            # 如果获取信息失败，可能是认证过期
-            await update.message.reply_text("获取套餐列表失败，请重新登录")
-    except Exception as e:
-        logger.error(f"Plans error: {str(e)}")
-        await update.message.reply_text("获取套餐列表失败：网络错误")
-
-
-async def orders(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """获取订单列表"""
-    if not await load_user_session(update):
-        await update.message.reply_text("请先使用 /login 登录")
-        return
-
-    try:
-        api = user_data[update.effective_user.id]['api']
-        orders = api.get_order_list()
-        if orders and 'data' in orders:
-            orders = orders['data']
-            message = "最近订单列表：\n\n"
-            for order in orders[:5]:  # 只显示最近5个订单
-                message += f"""
-订单号：{order.get('trade_no', 'N/A')}
-金额：{order.get('total_amount', 0)} 元
-状态：{'已支付' if order.get('status') == 3 else '未支付'}
-创建时间：{order.get('created_at', 'N/A')}
-------------------------
-"""
-            await update.message.reply_text(message)
-        else:
-            # 如果获取信息失败，可能是认证过期
-            await update.message.reply_text("获取订单列表失败，请重新登录")
-    except Exception as e:
-        logger.error(f"Orders error: {str(e)}")
-        await update.message.reply_text("获取订单列表失败：网络错误")
-
-
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """取消当前操作"""
     await update.message.reply_text("操作已取消")
@@ -487,7 +425,7 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def create_emby(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """创建Emby账号"""
     if not await load_user_session(update):
-        await update.message.reply_text("请先使用 /login 登录V2Board账号")
+        await update.message.reply_text("请先使用 /login 登录 Halo Cloud 账号")
         return
 
     # 检查是否已有Emby账号
@@ -528,7 +466,7 @@ async def create_emby(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         # 创建Emby账号
         emby = EmbyAPI()
-        result = emby.create_user()
+        result = emby.create_user(email)
 
         if result["success"]:
             # 保存Emby账号信息
@@ -578,6 +516,25 @@ async def emby_info(update: Update, context: ContextTypes.DEFAULT_TYPE):
 请妥善保管您的账号信息！
 """
     await update.message.reply_text(message, parse_mode='HTML')
+
+async def update_emby_password(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """更新Emby密码"""
+    user_id = update.effective_user.id
+    user_data = load_user_data(user_id)
+    if 'api' not in user_data:
+        await update.message.reply_text("请先登录")
+        return
+    api = user_data['api']
+    emby_api = EmbyAPI(api.api_url, api.api_key)
+    old_password = context.args[0] if context.args else None
+    new_password = context.args[1] if len(context.args) > 1 else None
+    if not old_password or not new_password:
+        await update.message.reply_text("请输入旧密码和新密码")
+        return
+    if not emby_api.update_password(old_password, new_password):
+        await update.message.reply_text("更新密码失败")
+        return
+    await update.message.reply_text("密码更新成功")
 
 
 async def delete_emby(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -634,8 +591,6 @@ if __name__ == '__main__':
     application.add_handler(CommandHandler("help", help_command))
     application.add_handler(CommandHandler("info", info))
     application.add_handler(CommandHandler("subscribe", subscribe))
-    application.add_handler(CommandHandler("plans", plans))
-    application.add_handler(CommandHandler("orders", orders))
     application.add_handler(CommandHandler("create_emby", create_emby))
     application.add_handler(CommandHandler("emby_info", emby_info))
     application.add_handler(CommandHandler("delete_emby", delete_emby))

@@ -138,6 +138,9 @@ venv/
 ENV/
 env.bak/
 venv.bak/
+logs/
+user_data/
+email_map.json
 
 # Spyder project settings
 .spyderproject
