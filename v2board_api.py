@@ -42,7 +42,6 @@ class V2BoardAPI:
             print(f"Login error: {str(e)}")
             return False
 
-
     def check_auth(self):
         """检查认证是否有效"""
         if not self.auth_data:
@@ -53,7 +52,6 @@ class V2BoardAPI:
             return response.status_code == 200 and 'data' in response.json()
         except:
             return False
-
 
     def get_user_info(self):
         """获取用户信息"""
@@ -69,7 +67,6 @@ class V2BoardAPI:
             print(f"Get user info error: {str(e)}")
             return None
 
-
     def get_subscribe_info(self):
         """获取订阅信息"""
         if not self.auth_data:
@@ -82,25 +79,6 @@ class V2BoardAPI:
             return None
         except Exception as e:
             print(f"Get subscribe info error: {str(e)}")
-            return None
-
-
-    def create_order(self, plan_id, cycle):
-        """创建订单"""
-        if not self.auth_data:
-            return None
-        try:
-            url = f"{self.base_url}/user/order/save"
-            data = {
-                "plan_id": plan_id,
-                "cycle": cycle
-            }
-            response = requests.post(url, headers=self.headers, json=data)
-            if response.status_code == 200:
-                return response.json()
-            return None
-        except Exception as e:
-            print(f"Create order error: {str(e)}")
             return None
 
 def main():

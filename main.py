@@ -26,7 +26,6 @@ logging.basicConfig(
             TimedRotatingFileHandler(
                 log_filename, when="midnight", encoding="utf-8", backupCount=30),  # 每天生成新的日志文件
             logging.StreamHandler(),  # 同时输出到控制台
-
     ]
 )
 logger = logging.getLogger(__name__)
@@ -188,11 +187,14 @@ async def clean_expired_data(context: ContextTypes.DEFAULT_TYPE | None = None) -
         if current_time - last_access > DATA_EXPIRE_TIME
     ]
     for user_id in expired_users:
-        email = user_data[user_id].get('email', 'unknown')
         if user_id in user_data:
+            email = user_data[user_id].get('email', 'unknown')
             del user_data[user_id]
-        del user_last_access[user_id]
-        logger.info(f"已清理用户 {email}(tg:{user_id}) 的过期数据")
+            del user_last_access[user_id]
+            logger.info(f"已清理用户 {email}(tg:{user_id}) 的过期数据")
+        elif user_id in user_last_access:
+            del user_last_access[user_id]
+            logger.info(f"已清理用户 (tg:{user_id}) 的过期访问记录")
 
 
 def load_user_data(user_id: int) -> dict:
@@ -314,13 +316,33 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def login(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """开始登录流程"""
+    user_id = update.effective_user.id
+
+     # 清理可能存在的未完成登录状态
+    if user_id in user_data:
+        if 'email' in user_data[user_id] and 'api' not in user_data[user_id]:
+            del user_data[user_id]
+
     await update.message.reply_text("请输入您的邮箱地址：")
     return TYPING_EMAIL
 
 
 async def email_received(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """处理邮箱输入"""
-    user_data[update.effective_user.id] = {'email': update.message.text}
+    user_id = update.effective_user.id
+    email = update.message.text.strip()  # 去除可能的空白字符
+
+    # 确保用户数据字典存在并清理
+    if user_id in user_data:
+        # 如果存在未完成的登录，清理它
+        if 'email' in user_data[user_id] and 'api' not in user_data[user_id]:
+            user_data[user_id].clear()
+    else:
+        user_data[user_id] = {}
+    
+    user_data[user_id]['email'] = email
+    user_last_access[user_id] = time.time()  # 更新访问时间
+
     await update.message.reply_text("请输入您的密码：")
     return TYPING_PASSWORD
 
@@ -328,11 +350,17 @@ async def email_received(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def password_received(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """处理密码输入并尝试登录"""
     user_id = update.effective_user.id
+
+    # 检查用户会话数据是否完整
+    if user_id not in user_data or 'email' not in user_data[user_id]:
+        await update.message.reply_text("会话已过期，请重新使用 /login 命令开始登录流程")
+        return ConversationHandler.END
+
     email = user_data[user_id]['email']
     password = update.message.text
 
     # 删除密码消息以保护隐私
-    # await update.message.delete()
+    await update.message.delete()
 
     # 创建API实例并尝试登录
     api = V2BoardAPI()
@@ -381,7 +409,7 @@ async def info(update: Update, context: ContextTypes.DEFAULT_TYPE):
             message = f"""
 账户信息：
 邮箱：{info.get('email', 'N/A')}
-余额：{info.get('balance', 0)} 元
+余额：{info.get('balance', 0) / 100} 元
 流量：{info.get('transfer_enable', 0) / 1024 / 1024 / 1024:.2f} GB
 过期时间：{ expiration_text }
 """
@@ -423,7 +451,18 @@ async def subscribe(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """取消当前操作"""
-    await update.message.reply_text("操作已取消")
+    user_id = update.effective_user.id
+
+    # 清理用户状态
+    if user_id in user_data:
+        # 如果用户在登录流程中但未完成，清理临时数据
+        if 'email' in user_data[user_id] and 'api' not in user_data[user_id]:
+            del user_data[user_id]
+
+    if update.message.text == "/cancel":
+        await update.message.reply_text("操作已取消")
+    else:
+        await update.message.reply_text("登录操作已取消，如需登录请重新使用 /login 命令")
     return ConversationHandler.END
 
 
@@ -435,8 +474,6 @@ async def create_emby(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # 检查是否已有Emby账号
     user_id = update.effective_user.id
-    user = update.effective_user
-
     if user_data[user_id].get('emby'):
         await update.message.reply_text("您已经有Emby账号了，可以使用 /emby_info 查看账号信息")
         return
@@ -474,6 +511,7 @@ async def create_emby(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # 创建Emby账号
         emby = EmbyAPI()
         result = emby.create_user(email)
+        user = update.effective_user
 
         if result["success"]:
             # 保存Emby账号信息
@@ -502,6 +540,7 @@ async def create_emby(update: Update, context: ContextTypes.DEFAULT_TYPE):
 """
             await update.message.reply_text(message, parse_mode='HTML')
         else:
+            logger.error(f"创建Emby账号失败: {result.get('error')}")  # 记录详细错误到日志
             await update.message.reply_text(f"创建Emby账号失败: {result['error']}")
     except Exception as e:
         logger.error(f"Create Emby error: {str(e)}")
@@ -585,10 +624,54 @@ async def delete_emby(update: Update, context: ContextTypes.DEFAULT_TYPE):
             logger.info(
                 f"用户 {user_data[user_id]['email']}(tg:{user_id}) 的Emby账号已成功删除")
         else:
+            logger.error(f"删除Emby账号失败: {result.get('error')}")  # 记录详细错误到日志
             await update.message.reply_text(f"删除Emby账号失败: {result['error']}")
     except Exception as e:
         logger.error(f"Delete Emby error: {str(e)}")
         await update.message.reply_text("删除Emby账号时发生错误")
+
+
+def update_all_emby_permissions():
+    """更新所有Emby用户的权限"""
+    logger.info("开始更新所有Emby用户权限...")
+    emby = EmbyAPI()
+    user_files = os.listdir('user_data')
+    updated_count = 0
+    error_count = 0
+
+    for file in user_files:
+        if file.endswith('.json'):
+            try:
+                with open(os.path.join('user_data', file), 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                    if data.get('emby'):
+                        emby_user_id = data['emby']['user_id']
+                        result = emby.set_user_policy(emby_user_id)
+                        if result["success"]:
+                            updated_count += 1
+                            logger.info(
+                                f"成功更新用户权限: {data['emby']['username']}")
+                        elif result["success"] is False and result["error"] == "用户不存在或已删除":
+                            logger.info(
+                                f"用户不存在或已删除: {data['emby']['username']}")
+                            del data['emby']
+                            user_id = int(file.split('.')[0])  # 从文件名获取 user_id
+                            save_user_data(user_id, data)
+                        else:
+                            error_count += 1
+                            logger.error(
+                                f"更新用户权限失败: {data['emby']['username']} - {result['error']}")
+            except Exception as e:
+                error_count += 1
+                logger.error(f"处理用户数据时出错: {file} - {str(e)}")
+
+    logger.info(f"Emby权限更新完成。成功: {updated_count}, 失败: {error_count}")
+
+
+async def invalid_state(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """处理无效状态的消息"""
+    await update.message.reply_text("登录操作已取消，如需登录请重新使用 /login 命令")
+    return ConversationHandler.END
 
 
 if __name__ == '__main__':
@@ -599,25 +682,37 @@ if __name__ == '__main__':
     # 创建应用
     application = Application.builder().token(TOKEN).build()
 
+    # 更新所有Emby用户权限
+    update_all_emby_permissions()
+
     # 创建登录会话处理器
     login_handler = ConversationHandler(
-        entry_points=[CommandHandler('login', login)],
+        entry_points=[CommandHandler('login', login, filters.ChatType.PRIVATE)],
         states={
-            TYPING_EMAIL: [MessageHandler(filters.TEXT & ~filters.COMMAND, email_received)],
-            TYPING_PASSWORD: [MessageHandler(filters.TEXT & ~filters.COMMAND, password_received)],
+            TYPING_EMAIL: [MessageHandler(filters.TEXT & ~filters.COMMAND & filters.ChatType.PRIVATE, email_received)],
+            TYPING_PASSWORD: [MessageHandler(filters.TEXT & ~filters.COMMAND & filters.ChatType.PRIVATE, password_received)],
         },
-        fallbacks=[CommandHandler('cancel', cancel)]
+        fallbacks=[CommandHandler('cancel', cancel, filters.ChatType.PRIVATE)],
+
+        # 添加会话超时
+        conversation_timeout=300  # 5分钟超时
     )
 
-    # 添加命令处理器
-    application.add_handler(CommandHandler("start", start))
-    application.add_handler(CommandHandler("help", help_command))
-    application.add_handler(CommandHandler("info", info))
-    application.add_handler(CommandHandler("subscribe", subscribe))
-    application.add_handler(CommandHandler("create_emby", create_emby))
-    application.add_handler(CommandHandler("emby_info", emby_info))
-    application.add_handler(CommandHandler("delete_emby", delete_emby))
-    application.add_handler(login_handler)
+    # 私聊命令处理器
+    private_handlers = [
+        login_handler,
+        CommandHandler("start", start, filters.ChatType.PRIVATE),
+        CommandHandler("help", help_command, filters.ChatType.PRIVATE),
+        CommandHandler("info", info, filters.ChatType.PRIVATE),
+        CommandHandler("subscribe", subscribe, filters.ChatType.PRIVATE),
+        CommandHandler("create_emby", create_emby, filters.ChatType.PRIVATE),
+        CommandHandler("emby_info", emby_info, filters.ChatType.PRIVATE),
+        CommandHandler("delete_emby", delete_emby, filters.ChatType.PRIVATE),
+    ]
+
+    # 注册所有处理器
+    for handler in private_handlers:
+        application.add_handler(handler)
 
     # 添加定时任务
     application.job_queue.run_repeating(

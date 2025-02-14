@@ -59,7 +59,21 @@ async def check_and_clean_invalid_emby_accounts(context: ContextTypes.DEFAULT_TY
             # 如果获取失败，尝试重新登录
             if not user_info or 'data' not in user_info:
                 if not api.login():
-                    logger.warning(f"用户 {user_identifier} 登录失败，跳过检查")
+                    # 如果登录失败，删除用户的emby账号
+                    emby_user_id = user_data['emby']['user_id']
+                    result = emby.delete_user(emby_user_id)
+                    if result["success"]:
+                        user_data['emby'] = {}
+                        with open(file_path, 'w', encoding='utf-8') as f:
+                            json.dump(user_data, f,
+                                      ensure_ascii=False, indent=2)
+                    # 向用户发送消息
+                    await context.bot.send_message(
+                        chat_id=user_id,
+                        text="登录失败，请使用 /login 命令重新登录"
+                    )
+                    logger.warning(
+                        f"用户 {user_identifier} 登录失败，已删除Emby账号并向用户发送消息")
                     continue
                 user_info = api.get_user_info()
 
